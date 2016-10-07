@@ -1,7 +1,7 @@
 # Descriptor for MapInfo
 Descriptor program for MapInfo
 
-TThis program works within MapInfo version 11.5 and higher.
+This program works within MapInfo version 11.5 and higher.
 
 The Descriptor extracts all points from a polygon and generates a textual description for use where a legal description of an area of land is required.
 
