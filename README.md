@@ -8,3 +8,5 @@ The Descriptor extracts all points from a polygon and generates a textual descri
 There are two files:
 1. The MBX is the compiled MapBasic program which is ran through MapInfo
 2. The MB file whiich is the MapBasic code and can be loaded into the MapBasic IDE
+
+Please note that at the moment this program only works with polygons which have been created in a clockwise direction.
