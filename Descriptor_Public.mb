@@ -1,0 +1,243 @@
+' Title: Polygon Descriptor for Public Use
+' Author: Peter Moore
+' Last Updated: 05-June-2015
+' Contact Email: bd504840@yahoo.com
+
+include "mapbasic.def"											'Include the major definitions for MapBasic
+
+dim measurement as integer										'Either Meters (1) or Yards (2)
+dim versionNumber as string										'Stores the version number of the program
+Dim CoordSys as string											'Stores information relating to the Coordinate reference system
+dim DrawingDirection as integer								'Drawing direction of polygon - 1 is clockwise, 2 anti-clockwise
+dim map_win_id as integer										'stores the ID number of the active Map Window
+dim areaText as string											'Stores either "Acres" or "Meters"
+dim ProjectionInfo as integer									'Stores either UTM(1) or Lat/Long(2)
+
+declare sub DescriptionSub										'Declare the sub Description routines
+declare sub EndProg												'Declare the End Program subroutine
+declare sub TotalArea											'Declare the procedure for displaying the total area of the polygon
+declare sub CloseQueries											'Declare the procedure to close the open queries
+declare sub MainMenu												'Dealres the procedure to display the menu
+declare sub CheckSelection										'Check to see if one polygin has been selected
+
+create ButtonPad "Description" as								'Creates a ButtonPad called Description
+	PushButton														'It is a Push Button
+	HelpMsg "Description Generator"							'This is the Help information for the ButtonPad
+	calling CheckSelection										'Calls the sub routine MainMenu when the button is pressed
+	Icon 32														'Uses Icon number 32 as defined in the MapBasic Icons.Def file
+
+'***** SUB PROCEDURE TO CHECK IF ONE POLYGON IS SELECTED *****
+sub CheckSelection												'Start of the sub procedure
+	dim i as integer												'Stores the number of Polygons selected
+
+	i=SelectionInfo(SEL_INFO_NROWS)							'i is the number of polygons selected
+	if i=0 then													'If no records are in the table then nothing is selected
+		note "No Records Selected!"								'Display an error message
+		call EndProg												'End the program
+	elseif i=1 then												'This means that one object has been selected - the correct thing to do
+		call MainMenu												'Calls the sub procedure to display the Main Menu
+		call DescriptionSub										'Then call the DescriptionSub procedure
+	else															'If more than one record has been selected
+		note "Multiple Records Selected!"						'Display Error message
+		call EndProg												'End the program
+	end if															'End the IF statement
+end sub															'End of the sub procedure
+
+'***** SUB PROCEDURE FOR THE MAIN MENU *****
+sub MainMenu
+	versionNumber="v1.0 Alpha"									'The current version number of the descriptor program
+	
+	dim CoordSys_Clause,EPSG_Code as string					'Stores the polygon projeciton information
+
+	CoordSys_Clause=TableInfo(selection,TAB_INFO_COORDSYS_CLAUSE)	'Captures inforomation relating the CRS of the polygon
+	CoordSys = TableInfo(selection, TAB_INFO_COORDSYS_NAME)		'Captures inforomation relating the CRS of the polygon
+	EPSG_Code=CoordSysStringToEPSG(CoordSys_Clause)		'Captures inforomation relating the CRS of the polygon
+	Dialog														'Creates a Dialog box
+		title "Public Descriptor " & versionNumber		'Gives the Dialog box a title
+		control StaticText									'Create some static text
+			title "Select Measurement"						'Display this text
+			position 15,5 width 100							'At x,y and width
+		control RadioGroup									'Create a Radio Group
+		Title "Meters;Yards"									'Options of either Meters and Yards
+		value 2												'initial value 2 (Yards)
+			into measurement									'Stores the choice in an integer called measurement
+			position 85,5 width 100							'Position of radio group
+		control StaticText									'Create some static text
+			title "Select Drawing Direction"				'Display this text
+			position 2,40 width 100							'At x,y and width
+		control RadioGroup									'Create a Radio Group
+		Title "Clockwise;Anti-clockwise"					'Options of drawing direction
+		value 1												'Default value of 1 (clockwise)
+			into DrawingDirection 							'Stores the result into the variable DrawingDirection
+			position 85,40 width 100							'Set x,y and width
+		'control statictext									'Creates a static text object
+			'title CoordSys_Clause							'Information relating to the CRS
+			'position 12,40 width 150						'Location and width relative to the dialog box
+		control statictext									'Create another static text object
+			title CoordSys 									'More information relating to the CRS
+			position 2,80 width 180							'Location and width relative to the dialog box
+		control statictext									'Create another static text object
+			title "EPSG Code: " & EPSG_Code				'EPSG Code of the Polygon
+			position 2,90 width 100							'Location and width relative to the dialog box
+		Control OKButton										'Creates an OK button
+	open window Message										'Open a new print window called Descripton
+				Set Window Message							'Set parameters of the Print window
+				Position(5,2)									'Set x,y position
+				Width 8										'Set Width in Inches
+				Height 5.0										'Set Height in Inches
+	print chr$(12)											'Clears the Print box
+	map_win_id=FrontWindow()								'Returns the ID number of the active map window
+	fetch first from selection								'Get the first (only) record from the selected table
+	set window Message font ("Times New Roman",1,12,black,white)	'Changes the font
+	print " "													'Prints a blank line
+	print "POINTS WITHIN POLYGON"							'Prints text in the print window
+	print " "													'Prints a blank line
+	if measurement=1 then									'If the scale is metric
+		areaText="Meters"										'Set the text to Meters
+	else														'Else set text to Yards
+		areaText="Yards"										'set the text to Yards
+	end if														'End of the IF statement
+	if instr(1,CoordSys ,"UTM") then 						'If the Coordsys is UTM
+		ProjectionInfo=1										'Then set projection info to 1
+	else														'Else 
+		ProjectionInfo=2										'Make projection info to 2 - this is Lat/Long
+	end if														'End the IF statement
+end sub														'Ends the sub procedure
+
+sub DescriptionSub											'Start of DescriptionSub Sub Routine
+	Define PI 3.141593										'Set PI as a constant
+
+	dim nRowID as integer									'Integers for the number of rows and RowID - used in testing of program
+	dim n as integer											'Number of Nodes in polygon
+	dim x,y as float											'X & Y coordinates of the polygon nodes
+	dim x1,y1 as float										'X & Y of previous nodes
+	dim nodeLoop as integer									'Used to loop through nodes in polygon
+	dim TblName as string									'Variable to store the database table name
+	dim oPoly as object										'Set oPoly to be an object
+	dim dist,dist2 as float									'Distances between points
+	dim map_win_id as integer								'stores the ID number of the active Map Window
+	Dim f_angle  As Float   								'Angle of the line
+	dim dmsX,dmsY,dmsX1,dmsY1 as string					'Stores the degrees, minutes and seconds of the x and y values
+	dim DistanceGap as float								'Stores the required distance between points
+	dim DistanceSum as float								'Store the sum of the distances
+	dim PointNo, PointNo2 as integer						'Stores the current & next point numbers
+	Dim deltaX, deltaY As Float								'Stores differences in distances between points
+	dim UTMobj, UTMobj2 as object							'Used for converting the point to UTM
+	dim S_MGRS,S_MGRS2 as string							'Used for converting the point to UTM
+	dim cmdString as string									'stores a command string
+	 
+	DistanceSum=0												'Set the variable to zero 
+	PointNo=1													'This is the point number (starts at 1)
+
+	n=ObjectInfo(selection.obj,OBJ_INFO_NPOLYGONS+1) 	'n is the number of points in the Polyon. MapBasic counts the first Pologygon Twice
+	if ProjectionInfo=1	then								'If the Coordssys is UTM
+		cmdString="set " & CoordSys_Clause					'Then set the coordinate system to that of the projection of the layer
+		run command cmdString								'run the command string
+	end if														'Ends the IF statement
+		oPoly=selection.obj									'Set oPoly to the current selected object
+		x1=ObjectNodeX(oPoly,1,1)							'get the X of the first Node
+		y1=ObjectNodeY(oPoly,1,1)							'Get the Y of the first Node
+		for nodeLoop=n to 1 step -1							'Loop through the nodes in the polygon (-1 reads in a clockwise direction)
+			x=ObjectNodeX(oPoly,1,nodeLoop)				'Get the x coordinate of the node
+			y=ObjectNodeY(oPoly,1,nodeLoop)				'Get the y coordinate of the node
+			if measurement=1 then							'If the scale is metric
+				dist=SphericalDistance(x,y,x1,y1,"m") 	'Get the distance between the two points in meters
+			else												'Set the scale to Yards
+				dist=SphericalDistance(x,y,x1,y1,"yd")	'Get the distance between the two points in Yards
+			end if												'End of the IF statement
+			if dist=0 then									'If the distance between the 2 points is 0 - which is the first set of points
+				'Do Nothing									'Does nothing if distance is 0
+			else												'If distance is not 0
+	
+		'Code for getting the angle between points - First get the difference between the two points
+			'Calculate change in Y
+				if measurement=1 then								'If the scale is metric
+					dist2 = SphericalDistance(x1,y1,x1,y,"m")		'Measure in meters
+				else													'If not meters then Yards
+		  			dist2 = SphericalDistance(x1,y1,x1,y,"yd")	'Measure in meters
+				end if
+			'Calculate angle, with zero degrees being east-west.  
+			If dist2/dist = 0 Then		'Horizontal line
+				f_angle = 0
+  			Elseif dist2/dist = 1 Then		'Vertical line
+				f_angle = 90
+  			Else
+				f_angle = asin(dist2/dist)* RAD_2_DEG
+  			End If
+
+			'Now calculate bearing (angle), with zero degrees being True North - Uses the standard 360-degree compass rose.
+  				If x >= x1 AND y > y1 Then
+					f_angle = Abs(f_angle - 90)
+  				Elseif x > x1 AND y <= y1 Then
+					f_angle = Abs(f_angle + 90)
+  				Elseif x <= x1 AND y < y1 Then
+					f_angle = Abs(f_angle - 90) + 180
+  				Elseif x < x1 AND y >= y1 Then
+					f_angle = Abs(f_angle + 270)
+  				End If					
+
+		'This is the main code for displaying the output
+				PointNo2=PointNo+1								'Selects the next point number
+					if PointNo2=n then							'If the Point number is the same as the number of points in the polygon
+						PointNo2=1									'Then the point number needs to be say "Point:1"
+					end if											'end the IF statement
+		if ProjectionInfo=1 then									'If the projection is in UTM 
+			'UTMobj=createpoint(x1,y1)							'Creates a point for UTM conversion
+			'UTMobj2=createpoint(x,y)							'Creates the second point for UTM conversion
+			'S_MGRS=PointToMGRS$(UTMobj)							'This converts the point to UTM
+			'S_MGRS2=PointToMGRS$(UTMobj2)						'This converts the second point to UTM
+		
+			'Print information for all the points - This output is for UTM projection
+			'print "Point " & PointNo & ": " & S_MGRS & " Point " & PointNo2 & ": " & S_MGRS2 & " " & areaText &":" & dist & " Bearing: " & format$(f_angle,".###") & chr$(176)
+			print "Point " & PointNo & ": " & x1 & " " & y1 & " Point " & PointNo2 & ": " & x & " " & y & " " & areaText &":" & dist & " Bearing: " & format$(f_angle,".###") & chr$(176)
+		else														'Else output in Deg/Min/Sec as it is Lat/Long
+			'This code converts the decimal into degrees, minutes and seconds
+			dmsX1=Fix(x1)+Chr$(176)+Abs(Fix(60*(x1-Fix(x1))))+"'"+format$(Abs(3600*(x1-Fix(x1)-Fix(60*(x1-Fix(x1)))/60)),".##")+Chr$(34)
+			dmsY1=Fix(y1)+Chr$(176)+Abs(Fix(60*(y1-Fix(y1))))+"'"+format$(Abs(3600*(y1-Fix(y1)-Fix(60*(y1-Fix(y1)))/60)),".##")+Chr$(34)
+			dmsX=Fix(x)+Chr$(176)+Abs(Fix(60*(x-Fix(x))))+"'"+format$(Abs(3600*(x-Fix(x)-Fix(60*(x-Fix(x)))/60)),".##")+Chr$(34)
+			dmsY=Fix(y)+Chr$(176)+Abs(Fix(60*(y-Fix(y))))+"'"+format$(Abs(3600*(y-Fix(y)-Fix(60*(y-Fix(y)))/60)),".##")+Chr$(34)
+			'Print information for all the points - This output is for Lat/Long
+			print "Point " & PointNo & ": " & dmsX1 & " " & dmsY1 & " Point " & PointNo2 & ": " & dmsX & " " & dmsY & " " & areaText &":" & dist & " Bearing: " & format$(f_angle,".###") & chr$(176)	
+		end if														'End the IF statement for UTM or Lat/Long
+				PointNo=PointNo+1									'Increment to the next point number
+			end if													'End of the IF statement
+			x1=x													'Set the x1 value to the current position
+			y1=y													'Set the y1 vaule to the current position
+		next														'Get the next node point
+		call TotalArea											'Calls the sub procedure to calculate the area of the polygon
+		call EndProg												'Ends the program
+end sub															'Ends the sub routine
+
+'****** SUB PROCEDURE TO CLOSE ALL OPEN QUERIES *****
+sub CloseQueries													'Start of the sub procedure
+	dim t as integer												'Stores the number of tables
+	for t=NumTables() to 1 step -1								'Loops through the open tables
+	if tableinfo(t,tab_info_name) like "Query%" then			'If the table name begins with the word Query
+		close table tableinfo(t,tab_info_name)				'Then close the query table
+	end if															'End of the IF statement
+	next															'End of the Foor loop
+end sub															'End of the sub procedure
+
+'****** SUB PROCEDURE TO WORK OUT THE TOTAL AREA OF THE POLYGON *****
+sub TotalArea														'Start of sub procedure
+	dim f_area as float											'Floating point for storing the area	
+	dim areaText as string										'Stores either "Acres" or "Meters"
+	fetch first from selection									'Select the first record from the selection table (these is only one record in it)
+	if measurement =1 then										'If the option is meters
+		areaText="Square KM"										'Set the output to Meters
+		f_area=area(selection.obj,"sq km")						'Calculate the area in meters
+	else															'Else set to Acres
+		areaText="Acres"											'Set the output text to Acres
+		f_area=area(selection.obj,"acre")						'Calculate the area and store the result in the f_area variable
+	end if															'Ends the IF statement
+	print" "														'Prints a blank line
+	'This prints the ouput to the screen
+	print "Total " & areaText & " Approximately: "  & f_area 
+end sub															'end of sub procedure
+
+'****** SUB PROCEDURE TO END THE PROGRAM *****
+sub EndProg														'Subroutine to end the program
+	call CloseQueries												'Calls the procedure to close open queries
+	end program													'Closes program and removes it from memory
+End sub															'End of the sub procedure
+
